@@ -26,6 +26,11 @@ from sklearn.metrics import (
 plt.style.use('default')
 sns.set_palette("husl")
 
+# Variables globales para el modelo
+model = None
+scaler = None
+feature_names = None
+
 def main():
     """
     Función principal que ejecuta todo el flujo CRISP-DM
@@ -44,8 +49,6 @@ def main():
         # Leer el archivo como texto primero para ver su estructura
         with open('falla_frenos.csv', 'r', encoding='utf-8') as file:
             first_line = file.readline().strip()
-        
-        print(f"🔍 Primera línea del archivo: {first_line}")
         
         # Si el archivo tiene comas dentro de comillas, usar separador personalizado
         if ',' in first_line and first_line.count('"') > 0:
@@ -442,5 +445,258 @@ def main():
     print("\n🎉 ¡PROGRAMA COMPLETADO EXITOSAMENTE!")
     print("=" * 50)
 
+# ============================================================================
+# APLICACIÓN FASTAPI PARA DESPLIEGUE WEB
+# ============================================================================
+
+# Solo importar FastAPI si se necesita para el despliegue web
+try:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    from typing import List
+    import uvicorn
+    
+    # Crear aplicación FastAPI
+    app = FastAPI(
+        title="🚗 API de Predicción de Fallas de Frenos",
+        description="API para predecir fallas de frenos usando Regresión Logística y metodología CRISP-DM",
+        version="1.0.0"
+    )
+    
+    # Configurar CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Modelo de datos para la API
+    class VehiculoInput(BaseModel):
+        kms_recorridos: int
+        años_uso: int
+        ultima_revision: int
+        temperatura_frenos: int
+        cambios_pastillas: int
+        estilo_conduccion: int
+        carga_promedio: int
+        luz_alarma_freno: int
+    
+    class PrediccionResponse(BaseModel):
+        prediccion: int
+        probabilidad_falla: float
+        probabilidad_no_falla: float
+        riesgo: str
+        recomendaciones: List[str]
+    
+    def predecir_falla_frenos_api(vehiculo: VehiculoInput):
+        """Predecir si un vehículo se quedará sin frenos para la API"""
+        global model, scaler, feature_names
+        
+        if model is None or scaler is None:
+            raise HTTPException(status_code=500, detail="Modelo no disponible. Ejecute primero el script principal.")
+        
+        try:
+            # Crear array con los datos de entrada
+            input_data = np.array([[
+                vehiculo.kms_recorridos,
+                vehiculo.años_uso,
+                vehiculo.ultima_revision,
+                vehiculo.temperatura_frenos,
+                vehiculo.cambios_pastillas,
+                vehiculo.estilo_conduccion,
+                vehiculo.carga_promedio,
+                vehiculo.luz_alarma_freno
+            ]])
+            
+            # Escalar los datos
+            input_scaled = input_data.copy()
+            input_scaled[0, :len(feature_names)] = scaler.transform(input_data[:, :len(feature_names)])
+            
+            # Realizar predicción
+            prediction = model.predict(input_scaled)[0]
+            probability = model.predict_proba(input_scaled)[0]
+            
+            # Determinar nivel de riesgo
+            if prediction == 1:
+                if probability[1] > 0.8:
+                    riesgo = "ALTO"
+                    recomendaciones = [
+                        "Revisar sistema de frenos inmediatamente",
+                        "Cambiar pastillas de freno si es necesario",
+                        "Verificar temperatura de operación",
+                        "Considerar cambio de estilo de conducción"
+                    ]
+                else:
+                    riesgo = "MEDIO"
+                    recomendaciones = [
+                        "Revisar sistema de frenos pronto",
+                        "Monitorear indicadores de desgaste",
+                        "Programar revisión en las próximas semanas"
+                    ]
+            else:
+                if probability[0] > 0.8:
+                    riesgo = "BAJO"
+                    recomendaciones = [
+                        "Mantener mantenimiento regular",
+                        "Continuar con revisiones programadas",
+                        "Monitorear indicadores de desgaste"
+                    ]
+                else:
+                    riesgo = "BAJO-MEDIO"
+                    recomendaciones = [
+                        "Mantener mantenimiento regular",
+                        "Monitorear indicadores de desgaste",
+                        "Considerar revisión preventiva"
+                    ]
+            
+            return PrediccionResponse(
+                prediccion=prediction,
+                probabilidad_falla=probability[1],
+                probabilidad_no_falla=probability[0],
+                riesgo=riesgo,
+                recomendaciones=recomendaciones
+            )
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error en la predicción: {str(e)}")
+    
+    # Endpoints de la API
+    @app.get("/")
+    async def root():
+        """Endpoint raíz con información de la API"""
+        return {
+            "mensaje": "🚗 API de Predicción de Fallas de Frenos",
+            "version": "1.0.0",
+            "descripcion": "API para predecir fallas de frenos usando Regresión Logística",
+            "endpoints": {
+                "/": "Información de la API",
+                "/health": "Estado de salud del sistema",
+                "/predict": "Realizar predicción de falla de frenos",
+                "/model-info": "Información del modelo entrenado"
+            }
+        }
+    
+    @app.get("/health")
+    async def health_check():
+        """Verificar el estado de salud del sistema"""
+        try:
+            if model is not None and scaler is not None:
+                return {
+                    "status": "healthy",
+                    "modelo_cargado": True,
+                    "scaler_cargado": True,
+                    "mensaje": "✅ Sistema funcionando correctamente"
+                }
+            else:
+                return {
+                    "status": "initializing",
+                    "modelo_cargado": False,
+                    "scaler_cargado": False,
+                    "mensaje": "🔄 Sistema inicializando. Ejecute primero el script principal."
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "mensaje": "❌ Error en el sistema"
+            }
+    
+    @app.post("/predict", response_model=PrediccionResponse)
+    async def predict_falla_frenos(vehiculo: VehiculoInput):
+        """Predecir si un vehículo se quedará sin frenos"""
+        return predecir_falla_frenos_api(vehiculo)
+    
+    @app.get("/model-info")
+    async def model_info():
+        """Obtener información del modelo entrenado"""
+        try:
+            if model is None:
+                raise HTTPException(status_code=500, detail="Modelo no disponible. Ejecute primero el script principal.")
+            
+            # Obtener coeficientes del modelo
+            coefficients = model.coef_[0]
+            
+            # Crear información de variables
+            variables_info = []
+            for i, (name, coef) in enumerate(zip(feature_names, coefficients)):
+                variables_info.append({
+                    "variable": name,
+                    "coeficiente": float(coef),
+                    "importancia_absoluta": float(abs(coef)),
+                    "efecto": "positivo" if coef > 0 else "negativo"
+                })
+            
+            # Ordenar por importancia absoluta
+            variables_info.sort(key=lambda x: x["importancia_absoluta"], reverse=True)
+            
+            return {
+                "tipo_modelo": "Regresión Logística",
+                "variables_entrada": len(feature_names),
+                "variables": variables_info,
+                "intercepto": float(model.intercept_[0]),
+                "clases": model.classes_.tolist()
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error al obtener información del modelo: {str(e)}")
+    
+    @app.get("/example-prediction")
+    async def example_prediction():
+        """Ejemplo de predicción con datos de muestra"""
+        try:
+            if model is None:
+                raise HTTPException(status_code=500, detail="Modelo no disponible. Ejecute primero el script principal.")
+            
+            # Ejemplo 1: Vehículo con alto riesgo
+            vehiculo_alto_riesgo = VehiculoInput(
+                kms_recorridos=150000,
+                años_uso=12,
+                ultima_revision=18,
+                temperatura_frenos=95,
+                cambios_pastillas=5,
+                estilo_conduccion=1,
+                carga_promedio=800,
+                luz_alarma_freno=1
+            )
+            
+            # Ejemplo 2: Vehículo con bajo riesgo
+            vehiculo_bajo_riesgo = VehiculoInput(
+                kms_recorridos=25000,
+                años_uso=3,
+                ultima_revision=6,
+                temperatura_frenos=35,
+                cambios_pastillas=1,
+                estilo_conduccion=0,
+                carga_promedio=300,
+                luz_alarma_freno=0
+            )
+            
+            prediccion_alto = predecir_falla_frenos_api(vehiculo_alto_riesgo)
+            prediccion_bajo = predecir_falla_frenos_api(vehiculo_bajo_riesgo)
+            
+            return {
+                "ejemplo_alto_riesgo": {
+                    "datos_vehiculo": vehiculo_alto_riesgo.dict(),
+                    "prediccion": prediccion_alto.dict()
+                },
+                "ejemplo_bajo_riesgo": {
+                    "datos_vehiculo": vehiculo_bajo_riesgo.dict(),
+                    "prediccion": prediccion_bajo.dict()
+                }
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error en ejemplo de predicción: {str(e)}")
+    
+    print("✅ Aplicación FastAPI disponible para despliegue web")
+    
+except ImportError:
+    print("⚠️ FastAPI no disponible. Solo modo consola disponible.")
+    app = None
+
 if __name__ == "__main__":
+    # Ejecutar el script principal
     main()

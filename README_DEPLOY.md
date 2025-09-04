@@ -2,21 +2,19 @@
 
 ## 📋 Descripción
 
-Este proyecto ahora incluye una **versión web** que puede desplegarse en plataformas como Render, Heroku, o cualquier servidor que soporte Python.
+Este proyecto ahora incluye una **versión unificada** que funciona tanto como **script de consola** como **API web**, todo en un solo archivo `main.py`.
 
 ## 🌐 Versiones Disponibles
 
-### 1. **`main.py`** - Versión de Consola
-- Script de Python tradicional
-- Ejecuta todo el flujo CRISP-DM
-- Interfaz interactiva por consola
-- **Uso**: `python main.py`
+### 1. **`main.py`** - Versión Unificada (Recomendada)
+- ✅ **Script de consola**: Ejecuta todo el flujo CRISP-DM
+- ✅ **API web**: Endpoints REST con FastAPI
+- ✅ **Uso local**: `python main.py`
+- ✅ **Uso web**: `uvicorn main:app --host 0.0.0.0 --port 8000`
 
-### 2. **`main_web.py`** - Versión Web (API)
-- API REST con FastAPI
-- Endpoints para predicciones
-- Documentación automática
-- **Uso**: `python main_web.py` o despliegue en servidor
+### 2. **`init_model.py`** - Inicialización del Modelo
+- Script para entrenar y guardar el modelo antes del despliegue
+- **Uso**: `python init_model.py`
 
 ## 🚀 Despliegue en Render.com
 
@@ -24,7 +22,8 @@ Este proyecto ahora incluye una **versión web** que puede desplegarse en plataf
 Asegúrate de que tu repositorio contenga:
 ```
 proyecto/
-├── main_web.py          # ✅ API web principal
+├── main.py              # ✅ Versión unificada (consola + API)
+├── init_model.py        # ✅ Script de inicialización
 ├── falla_frenos.csv     # ✅ Dataset
 ├── requirements.txt      # ✅ Dependencias
 ├── render.yaml          # ✅ Configuración de Render
@@ -47,7 +46,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main_web:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
 ### **Paso 4: Desplegar**
@@ -61,7 +60,7 @@ services:
 Si prefieres configurar manualmente:
 
 - **Build Command**: `pip install -r requirements.txt`
-- **Start Command**: `uvicorn main_web:app --host 0.0.0.0 --port $PORT`
+- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - **Environment**: Python 3.9
 
 ## 🌍 Endpoints de la API
@@ -192,32 +191,51 @@ Una vez desplegada, tu API incluirá:
 
 ## 🚨 Solución de Problemas
 
+### **Error: "Attribute 'app' not found in module 'main'"**
+- ✅ **SOLUCIONADO**: Ahora `main.py` incluye la aplicación FastAPI
+- ✅ Verifica que el start command sea: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+### **Error: "Modelo no disponible"**
+- ✅ El modelo se entrena automáticamente al ejecutar `main.py`
+- ✅ Para uso solo de API, ejecuta primero: `python init_model.py`
+
 ### **Error: "uvicorn: command not found"**
 - ✅ Asegúrate de que `uvicorn[standard]` esté en `requirements.txt`
 - ✅ Verifica que el build command sea `pip install -r requirements.txt`
 
 ### **Error: "Module not found"**
 - ✅ Verifica que todas las dependencias estén en `requirements.txt`
-- ✅ Asegúrate de que el archivo principal sea `main_web.py`
+- ✅ Asegúrate de que el archivo principal sea `main.py`
 
-### **Error: "Port already in use"**
-- ✅ Render maneja automáticamente el puerto con la variable `$PORT`
-- ✅ No cambies el comando de inicio
+## 🌟 Ventajas de la Nueva Configuración
 
-## 🌟 Ventajas del Despliegue Web
+1. **Unificación**: Un solo archivo para consola y web
+2. **Simplicidad**: Menos archivos para mantener
+3. **Flexibilidad**: Funciona en modo consola o API
+4. **Compatibilidad**: Funciona con cualquier plataforma de despliegue
+5. **Mantenimiento**: Código centralizado y fácil de actualizar
 
-1. **Accesibilidad**: Cualquier dispositivo puede usar la API
-2. **Integración**: Fácil integración con aplicaciones web/móviles
-3. **Escalabilidad**: Render maneja automáticamente el tráfico
-4. **Monitoreo**: Logs y métricas automáticas
-5. **Documentación**: API auto-documentada
+## 🔄 Flujo de Trabajo Recomendado
 
-## 🔄 Actualizaciones
+### **Para Desarrollo Local:**
+```bash
+# Ejecutar script completo con interfaz interactiva
+python main.py
+```
 
-Para actualizar la API:
-1. Haz commit de los cambios en tu repositorio
-2. Render detectará automáticamente los cambios
-3. Reconstruirá y redesplegará automáticamente
+### **Para Despliegue Web:**
+```bash
+# Opción 1: Entrenar modelo primero
+python init_model.py
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Opción 2: Ejecutar directamente (entrena automáticamente)
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### **Para Render:**
+- Render ejecutará automáticamente: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- El modelo se entrenará automáticamente al iniciar la API
 
 ## 📞 Soporte
 
@@ -225,6 +243,7 @@ Si tienes problemas con el despliegue:
 1. Revisa los logs en Render
 2. Verifica que todos los archivos estén presentes
 3. Asegúrate de que las dependencias sean correctas
+4. El error de "app not found" ya está solucionado
 
 ---
 
