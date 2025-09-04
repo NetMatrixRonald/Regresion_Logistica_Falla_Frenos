@@ -21,6 +21,8 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, classification_report
 )
+import pickle
+import os
 
 # Configuración para mostrar gráficos
 plt.style.use('default')
@@ -692,6 +694,131 @@ try:
             raise HTTPException(status_code=500, detail=f"Error en ejemplo de predicción: {str(e)}")
     
     print("✅ Aplicación FastAPI disponible para despliegue web")
+    
+    # Función para entrenar modelo automáticamente
+    def entrenar_modelo_automatico():
+        """Entrenar el modelo automáticamente al iniciar la API"""
+        global model, scaler, feature_names
+        
+        try:
+            print("📊 Cargando y procesando datos...")
+            
+            # Cargar datos
+            df = cargar_datos_para_api()
+            
+            # Preparar datos
+            X = df.drop('falla_frenos', axis=1)
+            y = df['falla_frenos']
+            
+            # Escalar variables numéricas
+            print("⚖️ Escalando variables numéricas...")
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            
+            # Dividir datos
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_scaled, y, test_size=0.3, random_state=42, stratify=y
+            )
+            
+            # Entrenar modelo
+            print("🤖 Entrenando modelo de regresión logística...")
+            model = LogisticRegression(random_state=42, max_iter=1000)
+            model.fit(X_train, y_train)
+            
+            # Guardar modelo y scaler
+            feature_names = X.columns.tolist()
+            
+            print("💾 Guardando modelo entrenado...")
+            with open('modelo_frenos.pkl', 'wb') as f:
+                pickle.dump(model, f)
+            with open('scaler_frenos.pkl', 'wb') as f:
+                pickle.dump(scaler, f)
+            with open('feature_names.pkl', 'wb') as f:
+                pickle.dump(feature_names, f)
+                
+            print("✅ Modelo entrenado y guardado exitosamente")
+            
+            # Evaluar modelo
+            y_pred = model.predict(X_test)
+            accuracy = (y_pred == y_test).mean()
+            print(f"📈 Accuracy del modelo: {accuracy*100:.2f}%")
+            
+        except Exception as e:
+            print(f"❌ Error al entrenar el modelo automáticamente: {e}")
+            # No lanzar excepción para evitar que falle el inicio de la API
+
+    def cargar_datos_para_api():
+        """Cargar y procesar los datos del CSV para la API"""
+        try:
+            # Leer el archivo como texto primero para ver su estructura
+            with open('falla_frenos.csv', 'r', encoding='utf-8') as file:
+                first_line = file.readline().strip()
+            
+            # Si el archivo tiene comas dentro de comillas, usar separador personalizado
+            if ',' in first_line and first_line.count('"') > 0:
+                # Leer el archivo y procesar manualmente
+                df = pd.read_csv('falla_frenos.csv', header=None)
+                
+                # La primera fila contiene los nombres de las columnas
+                column_names = df.iloc[0, 0].split(',')
+                
+                # Procesar todas las filas de datos
+                data_rows = []
+                for idx, row in df.iterrows():
+                    if idx == 0:  # Saltar la fila de encabezados
+                        continue
+                    # Dividir por comas y limpiar comillas
+                    values = row.iloc[0].split(',')
+                    # Convertir a tipos apropiados
+                    processed_values = []
+                    for i, val in enumerate(values):
+                        val = val.strip().strip('"')
+                        processed_values.append(int(val))
+                    data_rows.append(processed_values)
+                
+                # Crear DataFrame con los datos procesados
+                df = pd.DataFrame(data_rows, columns=column_names)
+                
+            else:
+                # Formato normal de CSV
+                df = pd.read_csv('falla_frenos.csv')
+            
+            print(f"✅ Datos cargados: {df.shape}")
+            return df
+            
+        except Exception as e:
+            print(f"❌ Error al cargar datos: {e}")
+            raise Exception(f"Error al cargar datos: {str(e)}")
+
+    # Inicializar el modelo al arrancar la aplicación
+    @app.on_event("startup")
+    async def startup_event():
+        """Evento que se ejecuta al arrancar la aplicación"""
+        print("🚀 Iniciando API de Predicción de Fallas de Frenos...")
+        
+        # Verificar si ya existe un modelo entrenado
+        if os.path.exists('modelo_frenos.pkl') and os.path.exists('scaler_frenos.pkl') and os.path.exists('feature_names.pkl'):
+            print("📁 Cargando modelo existente...")
+            try:
+                with open('modelo_frenos.pkl', 'rb') as f:
+                    global model
+                    model = pickle.load(f)
+                with open('scaler_frenos.pkl', 'rb') as f:
+                    global scaler
+                    scaler = pickle.load(f)
+                with open('feature_names.pkl', 'rb') as f:
+                    global feature_names
+                    feature_names = pickle.load(f)
+                print("✅ Modelo cargado exitosamente desde archivos existentes")
+            except Exception as e:
+                print(f"⚠️ Error al cargar modelo existente: {e}")
+                print("🔄 Entrenando nuevo modelo...")
+                entrenar_modelo_automatico()
+        else:
+            print("🔄 No se encontró modelo existente. Entrenando nuevo modelo...")
+            entrenar_modelo_automatico()
+        
+        print("✅ API lista para recibir solicitudes")
     
 except ImportError:
     print("⚠️ FastAPI no disponible. Solo modo consola disponible.")
